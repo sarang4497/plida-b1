@@ -1,0 +1,25 @@
+{
+ "name": "PLIDA B1 Italian",
+ "short_name": "PLIDA B1",
+ "description": "2,256 Italian B1 words by meaning, with verb reference and audio.",
+ "start_url": ".",
+ "scope": ".",
+ "display": "standalone",
+ "background_color": "#FAF6EC",
+ "theme_color": "#FAF6EC",
+ "orientation": "portrait-primary",
+ "icons": [
+  {
+   "src": "icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png",
+   "purpose": "any maskable"
+  },
+  {
+   "src": "icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "any maskable"
+  }
+ ]
+}
