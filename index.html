@@ -1409,7 +1409,36 @@ window.NAV = (function () {
  function save() {
    if (!okLS) return;
    st.lastUpdated = new Date().toISOString();
-   try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { okLS = false; }
+   try {
+     /* progress-merge fix */
+     var cur = null;                               // what other tabs / an earlier visit saved meanwhile
+     try { cur = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e2) { cur = null; }
+     if (!replaceAll && cur && cur.words && typeof cur.words === 'object') {
+       for (var pk in pending) {
+         if (pending[pk] === 'unmarked') delete cur.words[pk]; else cur.words[pk] = pending[pk];
+       }
+       st.words = cur.words;
+     }
+     localStorage.setItem(KEY, JSON.stringify(st));
+     pending = {}; replaceAll = false;
+   } catch (e) { okLS = false; }
+ }
+ var pending = {}, replaceAll = false;
+ function put(k, v) {                             // every progress change goes through here
+   if (v === 'unmarked') delete st.words[k]; else st.words[k] = v;
+   pending[k] = v;
+ }
+ function reloadStored() {                        // adopt the stored state (another tab saved it)
+   try {
+     var p2 = JSON.parse(localStorage.getItem(KEY) || 'null');
+     if (p2 && p2.words && typeof p2.words === 'object') {
+       for (var pk in pending) {
+         if (pending[pk] === 'unmarked') delete p2.words[pk]; else p2.words[pk] = pending[pk];
+       }
+       st.words = p2.words;
+       if (p2.milestone > (st.milestone || 0)) st.milestone = p2.milestone;
+     }
+   } catch (e) {}
  }
  var items = [].slice.call(document.querySelectorAll('tbody.w[data-k],tr.vr[data-k],.vb[data-k]'));
  function uOf(el) { return el.dataset.u || el.dataset.k; }
@@ -1420,7 +1449,7 @@ window.NAV = (function () {
    var moved = 0;
    items.forEach(function (it) {
      var k = it.dataset.k, u = uOf(it);
-     if (u !== k && st.words[k] && !st.words[u]) { st.words[u] = st.words[k]; moved++; }
+     if (u !== k && st.words[k] && !st.words[u]) { put(u, st.words[k]); moved++; }
    });
    if (moved) save();
  })();
@@ -1433,7 +1462,7 @@ window.NAV = (function () {
    el.classList.toggle('mstr', s === 'mastered');    // mastered rows recede
  }
  function setState(k, nx) {
-   if (nx === 'unmarked') delete st.words[k]; else st.words[k] = nx;
+   put(k, nx);
    save();
    items.forEach(function (it) { if (uOf(it) === k) paint(it); });
    counts(); filter(false);
@@ -1656,7 +1685,7 @@ window.NAV = (function () {
        '? This affects your review queue.';
    if (!window.confirm(msg)) return;
    g.keys.forEach(function (k) {
-     if (how === 'unmarked') delete st.words[k]; else st.words[k] = how;
+     put(k, how);
    });
    save();
    items.forEach(paint);
@@ -1770,7 +1799,7 @@ window.NAV = (function () {
    rd.onload = function () {
      try {
        var p = JSON.parse(rd.result);
-       st.words = p.words || {}; st.startDate = p.startDate || st.startDate;
+       st.words = p.words || {}; replaceAll = true; st.startDate = p.startDate || st.startDate;
        st.fontSize = p.fontSize || st.fontSize;
        save(); items.forEach(paint); counts(); applyFont(); filter(false);
        alert('Progress restored: ' + Object.keys(st.words).length + ' words.');
@@ -1856,8 +1885,18 @@ window.NAV = (function () {
  } catch (e) {}
  function fsave() {
    if (!okLS) return;
-   try { localStorage.setItem(FKEY, JSON.stringify(fl)); } catch (e) {}
+   try {
+     var cf = null;
+     try { cf = JSON.parse(localStorage.getItem(FKEY) || 'null'); } catch (e2) { cf = null; }
+     if (!fReplace && cf && typeof cf === 'object') {
+       for (var fk in fPending) { if (fPending[fk]) cf[fk] = true; else delete cf[fk]; }
+       fl = cf;
+     }
+     localStorage.setItem(FKEY, JSON.stringify(fl));
+     fPending = {}; fReplace = false;
+   } catch (e) {}
  }
+ var fPending = {}, fReplace = false;
  function paintFlag(el) {
    var k = el.dataset.k, on = !!fl[k], b = el.querySelector('.flag');
    el.classList.toggle('flagged', on);
@@ -1869,6 +1908,7 @@ window.NAV = (function () {
  }
  function toggleFlag(k) {
    if (fl[k]) delete fl[k]; else fl[k] = true;
+   fPending[k] = !!fl[k];
    fsave();
    items.forEach(function (it) { if (it.dataset.k === k) paintFlag(it); });
    flagCount(); counts(); filter(false);
@@ -1908,7 +1948,7 @@ window.NAV = (function () {
    rd.onload = function () {
      try {
        var p = JSON.parse(rd.result);
-       fl = p.flags || p || {};
+       fl = p.flags || p || {}; fReplace = true;
        fsave(); items.forEach(paintFlag); flagCount(); filter(false);
        alert('Flags restored: ' + Object.keys(fl).length + ' words.');
      } catch (err) { alert('That file could not be read as flag data.'); }
@@ -1921,7 +1961,7 @@ window.NAV = (function () {
    stateOf: stateOf,
    filter: filter,
    mark: function (k, state) {
-     if (state === 'unmarked') delete st.words[k]; else st.words[k] = state;
+     put(k, state);
      save();
      items.forEach(function (it) { if (uOf(it) === k) paint(it); });
      counts(); filter(false);
@@ -1931,6 +1971,28 @@ window.NAV = (function () {
 
  items.forEach(paint); items.forEach(paintFlag); applyFont(); counts();
  flagCount(); filter(false);
+ function resync() {
+   reloadStored();
+   try { var fr = JSON.parse(localStorage.getItem(FKEY) || 'null');
+         if (fr && typeof fr === 'object') {
+           for (var fk in fPending) { if (fPending[fk]) fr[fk] = true; else delete fr[fk]; }
+           fl = fr; } } catch (e) {}
+   items.forEach(paint); items.forEach(paintFlag); flagCount(); counts(); filter(false);
+ }
+ window.addEventListener('storage', function (e) { if (e.key === KEY || e.key === FKEY) resync(); });
+ window.addEventListener('pageshow', function (e) { if (e.persisted) resync(); });
+ document.addEventListener('visibilitychange', function () {
+   if (document.visibilityState === 'visible') resync(); });
+ try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+ (function previewNotice() {
+   var h = location.hostname;
+   if (!/\.vercel\.app$/.test(h) || h === 'plida-b1-sarang.vercel.app') return;
+   var n2 = document.createElement('div');
+   n2.id = 'note'; n2.className = 'noprint';
+   n2.innerHTML = 'This is a preview address. Progress is saved separately for every web address, so your ' +
+     'marks are not here. Open <a href="https://plida-b1-sarang.vercel.app/">plida-b1-sarang.vercel.app</a> to study with your progress.';
+   document.querySelector('main').insertBefore(n2, document.querySelector('main').firstChild);
+ })();
 })();
 </script><script>
 (function () {
