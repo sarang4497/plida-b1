@@ -1986,46 +1986,106 @@ window.NAV = (function () {
  try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
  (function previewNotice() {
    var h = location.hostname;
-   if (!/\.vercel\.app$/.test(h) || h === 'plida-b1-sarang.vercel.app') return;
+   if (!/\.vercel\.app$/.test(h) || h === 'plida-b1-sarang.vercel.app') return;     // production never shows it
    var n2 = document.createElement('div');
-   n2.id = 'note'; n2.className = 'noprint';
-   n2.innerHTML = 'This is a preview address. Progress is saved separately for every web address, so your ' +
-     'marks are not here. Open <a href="https://plida-b1-sarang.vercel.app/">plida-b1-sarang.vercel.app</a> to study with your progress.';
-   document.querySelector('main').insertBefore(n2, document.querySelector('main').firstChild);
+   n2.id = 'previewnote'; n2.className = 'noprint'; n2.setAttribute('role', 'note');
+   n2.style.cssText = 'margin:0 0 16px;padding:14px 16px;border:2px solid #B4532A;border-radius:12px;' +
+     'background:#FFF4EC;color:#3A1F12;font:15px/1.45 -apple-system,BlinkMacSystemFont,sans-serif';
+   n2.innerHTML = '<div style="font-weight:800;letter-spacing:.06em;font-size:13px;color:#B4532A">PREVIEW MODE</div>' +
+     '<p style="margin:6px 0 10px">Your saved progress is not shown here because browser progress is stored ' +
+     'separately for each web address. Your saved progress remains on the live study app.</p>' +
+     '<a href="https://plida-b1-sarang.vercel.app/" style="display:inline-block;padding:10px 18px;border-radius:999px;' +
+     'background:#1F3B2D;color:#FAF6EC;font-weight:700;text-decoration:none">Open my study app</a>';
+   var mn = document.querySelector('main');
+   mn.insertBefore(n2, mn.firstChild);
  })();
 })();
 </script><script>
 (function () {
- var synth = window.speechSynthesis, voice = null, ready = false;
- if (!synth) { document.body.classList.add('novoice'); return notice(); }
+ /* pronunciation-fix */
+ var synth = window.speechSynthesis || null, voice = null, ready = false;
+ /* best Italian voice first; the macOS novelty voices last; never a non-Italian voice */
+ var GOOD = [/premium/i, /enhanced|siri/i, /^google italiano/i, /^alice\b/i, /^federica\b/i, /^luca\b/i,
+             /^paola\b/i, /^emma\b/i, /^elsa\b/i, /^cosimo\b/i, /^diego\b/i, /^isabella\b/i];
+ var NOVELTY = /^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox)\b/i;
+ function langOf(v) { return (v.lang || '').replace('_', '-').toLowerCase(); }
  function pick() {
-   var vs = synth.getVoices() || [];
-   var it = vs.filter(function (v) { return (v.lang || '').toLowerCase().indexOf('it') === 0; });
-   if (!it.length) { document.body.classList.add('novoice'); notice(); return null; }
-   var by = function (f) { for (var i = 0; i < it.length; i++) if (f(it[i])) return it[i]; };
-   voice = by(function (v) { return v.name === 'Alice'; })                       // 1. Alice
-        || by(function (v) { return /^Alice\b/i.test(v.name); })                 //    Alice (Enhanced)
-        || by(function (v) { return /^Luca\b/i.test(v.name); })                  // 2. Luca
-        || by(function (v) { return v.localService; })                           // 3. any offline
-        || by(function (v) { return v.lang === 'it-IT'; })                        // 4. it-IT
-        || it[0];                                                                // 5. any it*
-   document.body.classList.remove('novoice');
-   window.__voice = voice ? voice.name + ' (' + voice.lang + ')' : 'none';
+   if (!synth) return null;
+   var vs = [];
+   try { vs = synth.getVoices() || []; } catch (e) { vs = []; }
+   var it = [].filter.call(vs, function (v) { return langOf(v).indexOf('it') === 0; });
+   if (!it.length) { voice = null; window.__voice = 'none'; return null; }
+   function score(v) {
+     var s = langOf(v) === 'it-it' ? 40 : 20;
+     for (var i = 0; i < GOOD.length; i++) if (GOOD[i].test(v.name)) { s += 30 - i; break; }
+     if (v.localService) s += 5;
+     if (NOVELTY.test(v.name)) s -= 60;
+     return s;
+   }
+   it.sort(function (a, b) { return score(b) - score(a); });
+   voice = it[0];
+   window.__voice = voice.name + ' (' + voice.lang + ')';
    ready = true;
    return voice;
  }
- function notice() {
-   if (document.getElementById('vnote')) return;
-   var d = document.createElement('div');
-   d.id = 'vnote'; d.className = 'noprint';
-   d.textContent = 'Pronunciation unavailable — install an Italian system voice for audio ' +
-     '(Mac: System Settings → Accessibility → Spoken Content → System Voice → Manage ' +
-     'Voices → Italian).';
-   var m = document.querySelector('main'); m.insertBefore(d, m.firstChild);
- }
  pick();
- if (synth.addEventListener) synth.addEventListener('voiceschanged', pick);
- else synth.onvoiceschanged = pick;      // Chrome returns [] on the first call
+ if (synth) {                                   // Chrome fills the list asynchronously: keep listening
+   if (synth.addEventListener) synth.addEventListener('voiceschanged', pick);
+   else synth.onvoiceschanged = pick;
+ }
+ /* ---- fallback: pre-generated audio for every word and phrase (audio/<key>.mp3) ---- */
+ var PAIR = /^(il|lo|la|l'|un|una|uno)\s*\/\s*(il|lo|la|l'|un|una|uno)\s*/i;
+ function spoken(t) {
+   t = String(t || '');
+   if (t.normalize) t = t.normalize('NFC');
+   return t.replace(/\u2019/g, "'").trim().replace(PAIR, '').trim();
+ }
+ function akey(t) {                            // FNV-1a 64-bit of the UTF-8 text: same key as the build script
+   var b = new TextEncoder().encode(spoken(t).toLowerCase());
+   var h = BigInt('0xcbf29ce484222325'), P = BigInt('0x100000001b3'), M = BigInt('0xffffffffffffffff');
+   for (var i = 0; i < b.length; i++) { h = h ^ BigInt(b[i]); h = (h * P) & M; }
+   var s = h.toString(16);
+   while (s.length < 16) s = '0' + s;
+   return s;
+ }
+ var cur = null, cache = {}, order = [];
+ function stopAll() {
+   try { if (synth && (synth.speaking || synth.pending)) synth.cancel(); } catch (e) {}
+   if (cur) { try { cur.pause(); cur.currentTime = 0; } catch (e) {} cur = null; }
+ }
+ function toast(msg) {
+   var d = document.getElementById('sptoast');
+   if (!d) { d = document.createElement('div'); d.id = 'sptoast'; d.className = 'noprint'; d.setAttribute('role', 'status');
+             d.style.cssText = 'position:fixed;left:50%;bottom:22px;transform:translateX(-50%);z-index:99;max-width:90vw;' +
+               'background:#1F3B2D;color:#FAF6EC;padding:9px 14px;border-radius:10px;font:14px/1.35 -apple-system,sans-serif;' +
+               'box-shadow:0 4px 14px rgba(0,0,0,.18)';
+             document.body.appendChild(d); }
+   d.textContent = msg; d.hidden = false;
+   clearTimeout(d._t); d._t = setTimeout(function () { d.hidden = true; }, 3200);
+ }
+ function playAudio(text, rate) {
+   var k, a;
+   try { k = akey(text); } catch (e) { return fail(); }
+   a = cache[k];
+   if (!a) {
+     a = new Audio('audio/' + k + '.mp3'); a.preload = 'auto';
+     cache[k] = a; order.push(k);
+     if (order.length > 80) delete cache[order.shift()];
+   }
+   a.onerror = function () { delete cache[k]; if (cur === a) { cur = null; fail(); } };
+   try { a.currentTime = 0; } catch (e) {}
+   a.playbackRate = rate && rate < 0.75 ? 0.7 : 1;
+   try { a.preservesPitch = true; } catch (e) {}
+   cur = a; window.__lastAudio = a;
+   var p = a.play();
+   if (p && p.catch) p.catch(function (e) {
+     if (cur === a && (!e || e.name !== 'AbortError')) { cur = null; fail(); } });
+ }
+ function fail() {
+   toast('No Italian pronunciation is available for this on this device.');
+ }
+ window.__speech = {pick: pick, akey: akey, spoken: spoken, say: function (t, slow) { speak(t, null, slow ? SLOW : RATE); },
+                   mode: function () { return voice ? 'native' : 'audio'; }};
 
  function textFor(btn) {
    var host;
@@ -2070,14 +2130,21 @@ window.NAV = (function () {
  }
  var RATE = 0.85, SLOW = 0.6;                       // 0.85 = patient teacher, 0.6 = diagnostic
  function speak(text, btn, rate) {
-   if (!text || !synth) return;
-   if (!voice && !pick()) return;
-   synth.cancel();                                  // never queue
-   var u = new SpeechSynthesisUtterance(text);
-   u.lang = 'it-IT'; u.rate = rate || RATE; if (voice) u.voice = voice;
+   text = spoken(text);
+   if (!text) return;
+   stopAll();                                       // never queue, never overlap
    if (btn) { btn.classList.remove('play'); void btn.offsetWidth; btn.classList.add('play');
               setTimeout(function () { btn.classList.remove('play'); }, 320); }
-   try { synth.speak(u); } catch (e) {}
+   if (!voice) pick();
+   if (!voice) return playAudio(text, rate || RATE);
+   var u = new SpeechSynthesisUtterance(text);
+   u.lang = 'it-IT'; u.rate = rate || RATE; u.voice = voice;
+   u.onerror = function (e) {                       // a broken native voice falls back to the audio file
+     if (e && (e.error === 'interrupted' || e.error === 'canceled')) return;
+     playAudio(text, rate || RATE);
+   };
+   window.__lastUtterance = u;
+   try { synth.speak(u); } catch (e) { playAudio(text, rate || RATE); }
  }
  document.addEventListener('click', function (e) {
    var b = e.target.closest('.sp,.sp2,.rsp,.rsp2'); if (!b) return;
